@@ -1,0 +1,5 @@
+.DS_Store
+*.cov
+*.mem
+Manifest-v*.toml
+LocalPreferences.toml
