@@ -1,6 +1,7 @@
 """
 Soleil serves the Solar package as a JSON web service, with user accounts and
-stored summaries behind bearer-token authentication.
+stored summaries behind bearer-token authentication. Its state lives in one
+AbstractStores backend chosen by configuration.
 
 Start it with `Soleil.run()`, which blocks, or `Soleil.run!()`, which returns
 the server. The service describes itself at `/openapi.json`, so a client can be
@@ -13,17 +14,27 @@ module Soleil
 
 using AbstractStores
 using Dates
+using DBInterface
 using Encid
-using JSON # loads Servo's JSON response format
+using JSON # loads Servo's JSON response format and AbstractStores' JSON codec
 using JWTs
 using OAuth
 using OpenAPI
+using Postgres
 using Random
+using Redis
 using SHA
 using Servo
 using Solar
+using SQLite
 
 const DEFAULT_CONFIG_DIR = normpath(joinpath(@__DIR__, "..", ".."))
+
+# AbstractStores' Redis backend lives in a package extension it cannot declare
+# yet: a registered package may only name registered weak dependencies, and
+# JuliaServices/Redis.jl is not registered. AbstractStores documents including
+# the extension file directly until then.
+include(joinpath(pkgdir(AbstractStores), "ext", "AbstractStoresRedisExt.jl"))
 
 include("summaries.jl")
 include("auth.jl")
@@ -115,17 +126,73 @@ function _register_endpoints!(router::Servo.Router, state::ApplicationState)
     return router
 end
 
+# A relative path in the configuration is relative to the configuration directory.
+function _config_path(configdir, key::String, default::String)
+    path = Servo.config(key, default)
+    return configdir === nothing || isabspath(path) ? path : normpath(joinpath(configdir, path))
+end
+
+"""
+    _configured_state_backend(configdir) -> AbstractStores.AbstractStore
+
+Open the backend that the `state.backend` setting names: `"memory"`, `"file"`
+(the default), `"redis"`, `"sqlite"`, or `"postgres"`. The SQL backends create
+their table if it does not exist.
+"""
+function _configured_state_backend(configdir)
+    backend = Servo.config("state.backend", "file")
+    table = Servo.config("state.sql.table", "soleil_state")
+    if backend == "memory"
+        return AbstractStores.MemoryStore()
+    elseif backend == "file"
+        # JSON files are readable and do not depend on the Julia version.
+        path = _config_path(configdir, "state.path", "state")
+        return AbstractStores.FileStore(path; codec=AbstractStores.JSONCodec())
+    elseif backend == "redis"
+        client = Redis.connect(
+            Servo.config("state.redis.host", "127.0.0.1"),
+            Servo.config("state.redis.port", 6379);
+            db=Servo.config("state.redis.db", 0),
+        )
+        prefix = Servo.config("state.redis.prefix", "soleil-state/")
+        return AbstractStores.PrefixedStore{Any}(AbstractStores.RedisStore{Any}(client), prefix)
+    elseif backend == "sqlite"
+        database = SQLite.DB(_config_path(configdir, "state.sqlite.path", "state.sqlite"))
+        return AbstractStores.SQLStore{Any}(database; table)
+    elseif backend == "postgres"
+        user = Servo.config("state.postgres.user", "postgres")
+        connection = DBInterface.connect(
+            Postgres.Connection,
+            Servo.config("state.postgres.host", "127.0.0.1"),
+            user,
+            Servo.config("state.postgres.password", nothing);
+            dbname=Servo.config("state.postgres.database", user),
+            port=Servo.config("state.postgres.port", 5432),
+            connect_timeout=Servo.config("state.postgres.connect_timeout", 5),
+            sslmode=Servo.config("state.postgres.sslmode", "disable"),
+        )
+        return AbstractStores.SQLStore{Any}(connection; table)
+    end
+    throw(ArgumentError(
+        "unknown state backend $(repr(backend)); expected memory, file, redis, sqlite, or postgres",
+    ))
+end
+
 """
     Soleil.run!(profile=""; configdir=DEFAULT_CONFIG_DIR, kw...) -> server
 
 Start Soleil without blocking. Servo loads `config.toml` and the profile's
 overrides from `configdir`, the application directory by default; then Soleil
-creates its state and endpoints and Servo starts listening. The `local` profile
-enables CORS. Other keywords go to `Servo.run!`.
+opens its state backend and registers its endpoints, and Servo starts
+listening. The `local` profile enables CORS. Other keywords go to `Servo.run!`.
 """
 function run!(profile::AbstractString=""; configdir=DEFAULT_CONFIG_DIR, kw...)
     router = Servo.Router()
-    setup() = (_register_endpoints!(router, _new_application_state()); nothing)
+    function setup()
+        state = _new_application_state(_configured_state_backend(configdir))
+        _register_endpoints!(router, state)
+        return nothing
+    end
     return Servo.run!("Soleil", profile; configdir, router, setup, kw...)
 end
 

@@ -37,32 +37,31 @@ end
 
 function _create_summary!(state, user_id::String, input::SimulationRequest)
     stored = _stored_summary(user_id, input)
-    lock(state.lock) do
-        haskey(state.summaries_by_user_id, user_id) &&
+    AbstractStores.modify!(state.summaries_by_user_id, user_id) do current
+        current === nothing ||
             throw(Servo.HTTPError(409, "a stored summary already exists"))
-        state.summaries_by_user_id[user_id] = stored
+        return stored
     end
     return stored
 end
 
 function _get_summary(state, user_id::String)
-    stored = lock(() -> get(state.summaries_by_user_id, user_id, nothing), state.lock)
+    stored = get(state.summaries_by_user_id, user_id, nothing)
     stored === nothing && Servo.notfound("no stored summary exists")
     return stored
 end
 
 function _update_summary!(state, user_id::String, input::SimulationRequest)
     stored = _stored_summary(user_id, input)
-    lock(state.lock) do
-        haskey(state.summaries_by_user_id, user_id) ||
-            Servo.notfound("no stored summary exists")
-        state.summaries_by_user_id[user_id] = stored
+    AbstractStores.modify!(state.summaries_by_user_id, user_id) do current
+        current === nothing && Servo.notfound("no stored summary exists")
+        return stored
     end
     return stored
 end
 
 function _delete_summary!(state, user_id::String)
-    removed = lock(() -> pop!(state.summaries_by_user_id, user_id, nothing), state.lock)
+    removed = pop!(state.summaries_by_user_id, user_id, nothing)
     removed === nothing && Servo.notfound("no stored summary exists")
     return nothing
 end

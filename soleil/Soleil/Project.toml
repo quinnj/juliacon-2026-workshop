@@ -7,36 +7,45 @@ version = "0.1.0"
 [deps]
 AbstractStores = "b8592f88-5fd7-4e10-8c52-04e8e19aea3c"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
 Encid = "22e113d6-bca1-46f4-8715-c46169ad70b7"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 JWTs = "d850fbd6-035d-5a70-a269-1ca2e636ac6c"
 OAuth = "22d8b318-f366-56fb-a292-a93f7d76c017"
 OpenAPI = "d5e62ea6-ddf3-4d43-8e4c-ad5e6c8bfd7d"
+Postgres = "8f23287e-300e-4f50-bc2b-9f1dfe95da84"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Redis = "ea172dcb-e524-4936-bdf0-c2e0946dc87a"
 SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 Servo = "169596a4-850b-412e-9996-453439081821"
 Solar = "2ae91c1a-bb75-4278-95c9-cd8aec436ad6"
+SQLite = "0aa819cd-b072-5ff4-a722-6bc24af294d9"
 
 [compat]
 AbstractStores = "0.2"
 Dates = "1.11"
+DBInterface = "2"
 Encid = "1"
 JSON = "1.13"
 JWTs = "1.2"
 OAuth = "4.5"
 OpenAPI = "1.2"
+Postgres = "2"
 Random = "1.11"
+Redis = "1"
 SHA = "0.7, 1"
 Servo = "2.1"
 Solar = "0.1"
+SQLite = "1"
 julia = "1.12"
 
 [extras]
 Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+Harbor = "af79dbb9-1a80-47ad-8928-192a4af69376"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [targets]
 # The OpenAPI-generated client in the integration test imports Base64 and UUIDs.
-test = ["Base64", "HTTP", "Test", "UUIDs"]
+test = ["Base64", "Harbor", "HTTP", "Test", "UUIDs"]

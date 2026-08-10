@@ -1,3 +1,9 @@
 # Base configuration. A `PORT` environment variable, a `--port=...` argument, or
 # a profile's config file overrides it.
 port = 9001
+
+# Where Soleil keeps its state: memory, file, redis, sqlite, or postgres.
+# Relative paths are relative to this directory.
+[state]
+backend = "file"
+path = "state"

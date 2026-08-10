@@ -68,23 +68,27 @@ end
 
 """
 The state every endpoint shares: accounts, stored summaries, and the token
-service and verifier. This phase keeps it in memory.
+service and verifier. Each record type is a typed, prefixed view of one
+AbstractStores `backend`, so the whole state lives in one place.
 """
-struct ApplicationState{T<:OAuth.TokenService,V<:JWTs.Verifier}
-    lock::ReentrantLock
-    users_by_id::Dict{String,User}
-    user_ids_by_email::Dict{String,String}
-    summaries_by_user_id::Dict{String,StoredSolarSummary}
+struct ApplicationState{B<:AbstractStores.AbstractStore,T<:OAuth.TokenService,V<:JWTs.Verifier}
+    backend::B
+    users_by_id::AbstractStores.PrefixedStore{User,B}
+    user_ids_by_email::AbstractStores.PrefixedStore{String,B}
+    summaries_by_user_id::AbstractStores.PrefixedStore{StoredSolarSummary,B}
     token_service::T
     token_verifier::V
 end
 
-function _new_application_state()
+function _new_application_state(backend::AbstractStores.AbstractStore=AbstractStores.MemoryStore())
+    # The signing key is stored too, so tokens stay valid across restarts.
+    metadata = AbstractStores.PrefixedStore{String}(backend, "soleil/meta/")
+    private_key = get!(OAuth.generate_rsa_private_key, metadata, "jwt-private-key")
     token_issuer = OAuth.JWTAccessTokenIssuer(;
         issuer=TOKEN_ISSUER,
         audience=[TOKEN_AUDIENCE],
         # Passing a signer, not just a key, gives the issuer a concrete type.
-        signer=OAuth.rsa_signer_from_bytes(OAuth.generate_rsa_private_key()),
+        signer=OAuth.rsa_signer_from_bytes(private_key),
         alg=:RS256,
         kid=TOKEN_KEY_ID,
         expires_in=TOKEN_LIFETIME_SECONDS,
@@ -103,14 +107,17 @@ function _new_application_state()
     # tokens, so their store stays empty.
     token_service = OAuth.TokenService(;
         issuer=token_issuer,
-        access_tokens=AbstractStores.MemoryStore{OAuth.AccessTokenRecord{SoleilTokenClaims}}(),
+        access_tokens=AbstractStores.PrefixedStore{OAuth.AccessTokenRecord{SoleilTokenClaims}}(
+            backend,
+            "oauth/access/",
+        ),
         refresh_grants=OAuth.InMemoryRefreshTokenGrantStore(),
     )
     return ApplicationState(
-        ReentrantLock(),
-        Dict{String,User}(),
-        Dict{String,String}(),
-        Dict{String,StoredSolarSummary}(),
+        backend,
+        AbstractStores.PrefixedStore{User}(backend, "soleil/users/id/"),
+        AbstractStores.PrefixedStore{String}(backend, "soleil/users/email/"),
+        AbstractStores.PrefixedStore{StoredSolarSummary}(backend, "soleil/summaries/"),
         token_service,
         token_verifier,
     )
@@ -133,6 +140,10 @@ end
 _password_digest(password::String, salt::Vector{UInt8}) =
     SHA.sha256(vcat(salt, codeunits(password)))
 
+# Emails are hashed before they become store keys, so file names and Redis keys
+# do not reveal them.
+_email_key(email::String) = bytes2hex(SHA.sha256(email))
+
 function _create_account!(state::ApplicationState, credentials::Credentials)
     email = _normalize_email(credentials.email)
     password = _validate_password(credentials.password)
@@ -140,20 +151,28 @@ function _create_account!(state::ApplicationState, credentials::Credentials)
     # A 128-bit random id, written compactly in Base58 for URLs.
     id = string(Encid.UID(; uid_type=Encid.UID16))
     user = User(id, email, salt, _password_digest(password, salt), Dates.now(UTC))
-    lock(state.lock) do
-        haskey(state.user_ids_by_email, email) &&
+    # Reserve the email first: `modify!` lets only one request claim it.
+    email_key = _email_key(email)
+    AbstractStores.modify!(state.user_ids_by_email, email_key) do current
+        current === nothing ||
             throw(Servo.HTTPError(409, "an account already exists for this email"))
+        return user.id
+    end
+    try
         state.users_by_id[user.id] = user
-        state.user_ids_by_email[email] = user.id
+    catch
+        # Release only this request's reservation.
+        AbstractStores.modify!(state.user_ids_by_email, email_key) do current
+            current == user.id ? nothing : current
+        end
+        rethrow()
     end
     return _account(user)
 end
 
 function _find_user_by_email(state::ApplicationState, email::String)
-    return lock(state.lock) do
-        user_id = get(state.user_ids_by_email, email, nothing)
-        user_id === nothing ? nothing : get(state.users_by_id, user_id, nothing)
-    end
+    user_id = get(state.user_ids_by_email, _email_key(email), nothing)
+    return user_id === nothing ? nothing : get(state.users_by_id, user_id, nothing)
 end
 
 function _login!(state::ApplicationState, credentials::Credentials)
@@ -208,7 +227,7 @@ function Servo.authenticatebearer(
     user_id === nothing && return nothing
     record = OAuth.lookup_access_token(state.token_service, token)
     (record === nothing || record.revoked || record.subject != user_id) && return nothing
-    user = lock(() -> get(state.users_by_id, user_id, nothing), state.lock)
+    user = get(state.users_by_id, user_id, nothing)
     user === nothing && return nothing
     return AuthContext(token, _account(user), claims)
 end

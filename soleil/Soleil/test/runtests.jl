@@ -1,4 +1,6 @@
+using AbstractStores
 using Encid
+using Harbor
 using HTTP
 using JSON
 using JWTs
@@ -9,10 +11,41 @@ using Solar
 using Soleil
 using Test
 
+docker_available() = Sys.which("docker") !== nothing && success(`docker info`)
+
+# The backend Soleil opens for these `state` settings.
+function configured_backend(settings)
+    empty!(Servo.CONFIG)
+    Servo.loadconfig!(; configs=Dict{String,Any}("state" => settings), log=false)
+    return Soleil._configured_state_backend(nothing)
+end
+
+# Everything a state writes, the signing key included, lives in its backend: a
+# second state over the same storage accepts the first state's token and finds
+# its summary.
+function test_persistence(settings)
+    credentials = Soleil.Credentials("persistent@example.com", "correct horse battery staple")
+    original = Soleil._new_application_state(configured_backend(settings))
+    account = Soleil._create_account!(original, credentials)
+    token = Soleil._login!(original, credentials).access_token
+    input = Soleil.SimulationRequest(40.76, -111.89, 2026, 8.0)
+    stored = Soleil._create_summary!(original, account.id, input)
+
+    reopened = Soleil._new_application_state(configured_backend(settings))
+    context = Servo.authenticatebearer(Soleil.SoleilTokenValidator(reopened), token, nothing)
+    @test context isa Soleil.AuthContext
+    @test context.user.id == account.id
+    restored = Soleil._get_summary(reopened, account.id)
+    @test restored.summary.estimated_annual_energy_kwh == stored.summary.estimated_annual_energy_kwh
+    @test restored.summary.best_day == stored.summary.best_day
+    return original.backend
+end
+
 # Like client_demo.jl: generate a client from the running service. This runs
 # before the tests, so they can call the module the include defines. Port 0
 # picks a free port.
-server = Soleil.run!(; host="127.0.0.1", configs=Dict("port" => 0), accesslog=false, log=false)
+configs = Dict{String,Any}("port" => 0, "state" => Dict{String,Any}("backend" => "memory"))
+server = Soleil.run!(; host="127.0.0.1", configs, accesslog=false, log=false)
 base = "http://127.0.0.1:$(Servo.port(server))"
 document = OpenAPI.read("$base/openapi.json")
 include_string(@__MODULE__, OpenAPI.client(document; name="SoleilClient"))
@@ -147,5 +180,68 @@ end
         # A revoked token no longer authenticates, although its signature is valid.
         @test OAuth.revoke_access_token!(state.token_service, token)
         @test Servo.authenticatebearer(validator, token, nothing) === nothing
+    end
+
+    @testset "state backends" begin
+        @test_throws ArgumentError configured_backend(Dict{String,Any}("backend" => "floppy"))
+
+        @testset "file" begin
+            mktempdir() do directory
+                backend = test_persistence(Dict{String,Any}("backend" => "file", "path" => directory))
+                stored_keys = collect(keys(backend))
+                @test "soleil/meta/jwt-private-key" in stored_keys
+                @test any(startswith("oauth/access/"), stored_keys)
+                @test !any(contains("persistent@example.com"), stored_keys)
+            end
+        end
+
+        @testset "sqlite" begin
+            mktempdir() do directory
+                path = joinpath(directory, "state.sqlite")
+                test_persistence(Dict{String,Any}("backend" => "sqlite", "sqlite" => Dict{String,Any}("path" => path)))
+            end
+        end
+
+        @testset "redis" begin
+            if !docker_available()
+                @test_skip "Docker is not available"
+            else
+                Harbor.with_container(
+                    "redis";
+                    tag="7",
+                    ports=Dict(6379 => 0),
+                    wait_strategy=(pattern="Ready to accept connections",),
+                    wait_timeout=120.0,
+                ) do container
+                    redis = Dict{String,Any}("port" => Harbor.host_port(container, 6379))
+                    test_persistence(Dict{String,Any}("backend" => "redis", "redis" => redis))
+                end
+            end
+        end
+
+        @testset "postgres" begin
+            if !docker_available()
+                @test_skip "Docker is not available"
+            else
+                Harbor.with_container(
+                    "postgres";
+                    tag="16",
+                    ports=Dict(5432 => 0),
+                    environment=Dict("POSTGRES_PASSWORD" => "postgres", "POSTGRES_DB" => "soleil"),
+                    wait_strategy=(pattern=r"database system is ready to accept connections",),
+                    wait_timeout=120.0,
+                ) do container
+                    postgres = Dict{String,Any}(
+                        "port" => Harbor.host_port(container, 5432),
+                        "password" => "postgres",
+                        "database" => "soleil",
+                    )
+                    settings = Dict{String,Any}("backend" => "postgres", "postgres" => postgres)
+                    # Postgres restarts once after initializing, so wait for a real connection.
+                    retry(() -> configured_backend(settings); delays=fill(0.5, 60))()
+                    test_persistence(settings)
+                end
+            end
+        end
     end
 end

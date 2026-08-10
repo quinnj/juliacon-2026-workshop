@@ -50,9 +50,9 @@ typed `SoleilClient.ApiError`. `SoleilClient.jl` is regenerated on every run.
 
 ## Accounts and authentication
 
-Soleil keeps accounts, issued tokens, and one stored summary per user in
-memory, so they reset when the server restarts. Account ids are 128-bit random
-[Encid](https://github.com/JuliaServices/Encid.jl) ids, written in Base58.
+Each user has an account, issued tokens, and one stored solar summary. Account
+ids are 128-bit random [Encid](https://github.com/JuliaServices/Encid.jl) ids,
+written in Base58.
 
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
@@ -81,6 +81,49 @@ scrypt, or bcrypt.
 
 [client_demo.jl](client_demo.jl) now also creates an account, logs in, and
 creates, reads, updates, and deletes that account's stored summary.
+
+## State
+
+Soleil keeps all of its state (accounts, stored summaries, issued tokens, and
+the JWT signing key) in one
+[AbstractStores](https://github.com/JuliaServices/AbstractStores.jl) backend.
+Each kind of record is a typed view of that backend under its own key prefix,
+so one backend is one thing to back up. Emails are hashed before they become
+keys. The `[state]` table in [`config.toml`](config.toml) chooses the backend:
+
+| `backend` | Settings | Stores state |
+| --- | --- | --- |
+| `memory` | | In the server process, until it exits |
+| `file` (default) | `path` | As one JSON file per key, under `soleil/state/` |
+| `redis` | `redis.host`, `redis.port`, `redis.db`, `redis.prefix` | In Redis |
+| `sqlite` | `sqlite.path`, `sql.table` | In one table of `soleil/state.sqlite` |
+| `postgres` | `postgres.host`, `postgres.port`, `postgres.user`, `postgres.password`, `postgres.database`, `sql.table` | In one Postgres table |
+
+The server demo takes the backend as its argument and uses memory by default:
+
+```sh
+julia --project=soleil soleil/server_demo.jl file
+```
+
+For `redis` and `postgres` the demo starts a temporary container with
+[Harbor](https://github.com/JuliaServices/Harbor.jl), so Docker must be
+running.
+
+The file backend writes each value atomically, but it coordinates
+read-modify-write updates only within one process. Redis and the SQL backends
+make those updates atomic across processes, so use one of them when several
+Soleil processes share state. The SQL backends create their table if it does
+not exist; later schema changes are up to you. Keep real database passwords out
+of `config.toml`, for example in a git-ignored `.config-<profile>.toml`.
+
+Redis and the SQL backends store values with Julia's `Serialization` stdlib,
+whose format can change between Julia versions; never load state from an
+untrusted source.
+
+[JuliaServices/Redis.jl](https://github.com/JuliaServices/Redis.jl) is not in
+the General registry, so `Project.toml` pins a commit of it, and AbstractStores
+cannot declare its Redis extension yet. Soleil includes the extension's source
+file directly instead.
 
 ## Tests
 
