@@ -10,6 +10,14 @@ using OpenAPI
 
 server_url = isempty(ARGS) ? "http://127.0.0.1:9001" : only(ARGS)
 
+# Time the server's first and second simulation. A /status request first warms
+# this client's own HTTP code, so the first timing is the server's.
+HTTP.get("$server_url/status")
+simulate_url = "$server_url/v1/simulate/40.76/-111.89?system_capacity_kw=8.0"
+first_ms = round(1000 * @elapsed(HTTP.get(simulate_url)); digits=1)
+second_ms = round(1000 * @elapsed(HTTP.get(simulate_url)); digits=1)
+println("first simulate request: ", first_ms, " ms; second: ", second_ms, " ms")
+
 # One function per endpoint and one struct per schema, written to SoleilClient.jl.
 client_path = joinpath(@__DIR__, "SoleilClient.jl")
 OpenAPI.client(OpenAPI.read("$server_url/openapi.json"); name="SoleilClient", path=client_path)

@@ -1,0 +1,12 @@
+# The docker_server_demo.sh profile for file state. Its secrets exist only in
+# the demo's throwaway containers.
+[state]
+backend = "file"
+path = "state"
+
+[events]
+enabled = true
+webhook_secret = "soleil-demo-weather-secret"
+
+[events.nats]
+url = "nats://nats:4222"

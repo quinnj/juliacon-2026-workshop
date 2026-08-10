@@ -1,0 +1,5 @@
+.git
+.DS_Store
+soleil/SoleilClient.jl
+soleil/state/
+soleil/state.sqlite*
