@@ -29,6 +29,17 @@ simulation.daily[1]
 Azimuth is measured clockwise from north and zenith down from straight
 overhead. Irradiation is reported in kWh/m² and estimated energy in kWh.
 
+## JSON field tags
+
+StructUtils field tags shape Solar's JSON without changing the Julia structs:
+
+- `Location.latitude` and `Location.longitude` serialize as `latitude_deg` and
+  `longitude_deg`.
+- `SimulationConfig.time_step_minutes` stays available in Julia but is omitted
+  from JSON.
+- `SolarSummary.average_daily_energy_kwh` keeps full precision in Julia and is
+  rounded to two decimal places when serialized.
+
 ## Model scope
 
 Solar models approximate Earth–sun geometry, clear-sky direct and diffuse

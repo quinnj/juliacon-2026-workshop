@@ -2,6 +2,7 @@ module Solar
 
 using Dates
 using Printf
+using StructUtils
 
 const SOLAR_CONSTANT_KW_M2 = 1.367
 
@@ -15,9 +16,10 @@ const SOLAR_CONSTANT_KW_M2 = 1.367
 A geographic point in decimal degrees: latitude in `[-90, 90]`, longitude in
 `[-180, 180]`.
 """
-struct Location
-    latitude::Float64
-    longitude::Float64
+StructUtils.@tags struct Location
+    # The JSON names carry the unit; the Julia names stay short.
+    latitude::Float64 &(json=(name="latitude_deg",),)
+    longitude::Float64 &(json=(name="longitude_deg",),)
 
     function Location(latitude::Real, longitude::Real)
         -90 <= latitude <= 90 ||
@@ -45,7 +47,7 @@ struct SolarPosition
 end
 
 """Configuration used to produce a [`SolarSimulation`](@ref)."""
-struct SimulationConfig
+StructUtils.@tags struct SimulationConfig
     year::Int
     utc_offset_hours::Float64
     panel_tilt_deg::Float64
@@ -54,7 +56,8 @@ struct SimulationConfig
     performance_ratio::Float64
     atmospheric_transmittance::Float64
     ground_albedo::Float64
-    time_step_minutes::Int
+    # An implementation detail: kept in Julia, left out of JSON.
+    time_step_minutes::Int &(json=(ignore=true,),)
 end
 
 """One day of solar availability and panel production."""
@@ -79,11 +82,14 @@ struct MonthlySolarSummary
 end
 
 """Annual totals and extremes derived from the days of a [`SolarSimulation`](@ref)."""
-struct SolarSummary
+StructUtils.@tags struct SolarSummary
     annual_horizontal_irradiation_kwh_m2::Float64
     annual_panel_irradiation_kwh_m2::Float64
     estimated_annual_energy_kwh::Float64
-    average_daily_energy_kwh::Float64
+    # Rounded only when written as JSON; the Julia value keeps full precision.
+    average_daily_energy_kwh::Float64 &(
+        json=(lower=value -> round(value; digits=2),),
+    )
     best_day::Date
     best_day_energy_kwh::Float64
     lowest_day::Date

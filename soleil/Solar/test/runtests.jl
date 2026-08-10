@@ -1,5 +1,6 @@
 using Dates
 using Solar
+using StructUtils
 using Test
 
 @testset "Solar" begin
@@ -144,5 +145,30 @@ using Test
             0;
             time_step_minutes=17,
         )
+    end
+
+    @testset "field metadata" begin
+        style = StructUtils.DefaultStyle()
+
+        latitude_tags = StructUtils.fieldtags(
+            style,
+            Solar.Location,
+            :latitude,
+        )
+        @test latitude_tags.json.name == "latitude_deg"
+
+        step_tags = StructUtils.fieldtags(
+            style,
+            Solar.SimulationConfig,
+            :time_step_minutes,
+        )
+        @test step_tags.json.ignore
+
+        average_tags = StructUtils.fieldtags(
+            style,
+            Solar.SolarSummary,
+            :average_daily_energy_kwh,
+        )
+        @test average_tags.json.lower(12.346) == 12.35
     end
 end
