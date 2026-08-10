@@ -7,3 +7,14 @@ port = 9001
 [state]
 backend = "file"
 path = "state"
+
+# Weather events need a NATS server, so they are off unless enabled. Set
+# `events.webhook_secret` from a secret source such as `.config-<profile>.toml`.
+[events]
+enabled = false
+# Tempus cron fields: second minute hour day month weekday (hourly here).
+cleanup_schedule = "0 0 * * * *"
+logging = true
+
+[events.nats]
+url = "nats://127.0.0.1:4222"

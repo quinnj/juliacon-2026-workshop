@@ -42,6 +42,8 @@ function _create_summary!(state, user_id::String, input::SimulationRequest)
             throw(Servo.HTTPError(409, "a stored summary already exists"))
         return stored
     end
+    # Weather advisories matched an earlier summary's location, so drop them.
+    pop!(state.advisories_by_user_id, user_id, nothing)
     return stored
 end
 
@@ -57,11 +59,13 @@ function _update_summary!(state, user_id::String, input::SimulationRequest)
         current === nothing && Servo.notfound("no stored summary exists")
         return stored
     end
+    pop!(state.advisories_by_user_id, user_id, nothing)
     return stored
 end
 
 function _delete_summary!(state, user_id::String)
     removed = pop!(state.summaries_by_user_id, user_id, nothing)
     removed === nothing && Servo.notfound("no stored summary exists")
+    pop!(state.advisories_by_user_id, user_id, nothing)
     return nothing
 end

@@ -76,6 +76,7 @@ struct ApplicationState{B<:AbstractStores.AbstractStore,T<:OAuth.TokenService,V<
     users_by_id::AbstractStores.PrefixedStore{User,B}
     user_ids_by_email::AbstractStores.PrefixedStore{String,B}
     summaries_by_user_id::AbstractStores.PrefixedStore{StoredSolarSummary,B}
+    advisories_by_user_id::AbstractStores.PrefixedStore{Vector{WeatherAdvisory},B}
     token_service::T
     token_verifier::V
 end
@@ -118,6 +119,7 @@ function _new_application_state(backend::AbstractStores.AbstractStore=AbstractSt
         AbstractStores.PrefixedStore{User}(backend, "soleil/users/id/"),
         AbstractStores.PrefixedStore{String}(backend, "soleil/users/email/"),
         AbstractStores.PrefixedStore{StoredSolarSummary}(backend, "soleil/summaries/"),
+        AbstractStores.PrefixedStore{Vector{WeatherAdvisory}}(backend, "soleil/weather/"),
         token_service,
         token_verifier,
     )

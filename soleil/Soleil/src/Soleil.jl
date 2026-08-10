@@ -1,7 +1,8 @@
 """
 Soleil serves the Solar package as a JSON web service, with user accounts and
 stored summaries behind bearer-token authentication. Its state lives in one
-AbstractStores backend chosen by configuration.
+AbstractStores backend chosen by configuration. Optionally, it receives weather
+advisories through NATS JetStream and expires them with a Tempus job.
 
 Start it with `Soleil.run()`, which blocks, or `Soleil.run!()`, which returns
 the server. The service describes itself at `/openapi.json`, so a client can be
@@ -18,6 +19,7 @@ using DBInterface
 using Encid
 using JSON # loads Servo's JSON response format and AbstractStores' JSON codec
 using JWTs
+using NATS
 using OAuth
 using OpenAPI
 using Postgres
@@ -27,6 +29,7 @@ using SHA
 using Servo
 using Solar
 using SQLite
+using Tempus
 
 const DEFAULT_CONFIG_DIR = normpath(joinpath(@__DIR__, "..", ".."))
 
@@ -37,14 +40,20 @@ const DEFAULT_CONFIG_DIR = normpath(joinpath(@__DIR__, "..", ".."))
 include(joinpath(pkgdir(AbstractStores), "ext", "AbstractStoresRedisExt.jl"))
 
 include("summaries.jl")
+include("events.jl")
 include("auth.jl")
 
 """
-    _register_endpoints!(router, state) -> router
+    _register_endpoints!(router, state, events=nothing) -> router
 
-Register Soleil's endpoints on `router`. They all share `state`.
+Register Soleil's endpoints on `router`. They all share `state`; the weather
+webhook publishes through `events`, and answers 503 when that is `nothing`.
 """
-function _register_endpoints!(router::Servo.Router, state::ApplicationState)
+function _register_endpoints!(
+    router::Servo.Router,
+    state::ApplicationState,
+    events::Union{Nothing,EventRuntime}=nothing,
+)
     # Path segments bind the positional arguments and query parameters bind the
     # keywords, each converted to its declared type. `public` endpoints need no
     # authentication and get Servo's default rate limit.
@@ -121,6 +130,24 @@ function _register_endpoints!(router::Servo.Router, state::ApplicationState)
         return _delete_summary!(state, _owner(userId))
     end
 
+    Servo.@GET router "/v1/weather/{userId}" bearer function get_weather_status(
+        userId::String,
+    )::WeatherStatus
+        user_id = _owner(userId)
+        _get_summary(state, user_id) # a 404 when the user has no summary
+        return _weather_status(state, user_id)
+    end
+
+    # Weather providers authenticate with their own secret. The endpoint
+    # returns once JetStream has stored the advisory; a background worker
+    # matches it to stored summaries.
+    provider = Servo.BearerAuth(WeatherWebhookValidator(Servo.config("events.webhook_secret", "")))
+    Servo.@POST router "/v1/webhooks/weather-advisories" provider function receive_weather_advisory(
+        advisory::WeatherAdvisory,
+    )::WeatherAdvisoryReceipt
+        return _publish_weather_advisory!(events, advisory)
+    end
+
     # Describe the registered endpoints as OpenAPI 3.2 at /openapi.json.
     OpenAPI.register!(router; title="Soleil API", version=string(pkgversion(Soleil)))
     return router
@@ -183,17 +210,27 @@ end
 
 Start Soleil without blocking. Servo loads `config.toml` and the profile's
 overrides from `configdir`, the application directory by default; then Soleil
-opens its state backend and registers its endpoints, and Servo starts
-listening. The `local` profile enables CORS. Other keywords go to `Servo.run!`.
+opens its state backend, starts event processing if it is enabled, and
+registers its endpoints, and Servo starts listening. Closing the returned
+[`Server`](@ref) also stops event processing. The `local` profile enables CORS.
+Other keywords go to `Servo.run!`.
 """
 function run!(profile::AbstractString=""; configdir=DEFAULT_CONFIG_DIR, kw...)
     router = Servo.Router()
+    events = Ref{Union{Nothing,EventRuntime}}(nothing)
     function setup()
         state = _new_application_state(_configured_state_backend(configdir))
-        _register_endpoints!(router, state)
+        events[] = _configured_event_runtime(state)
+        _register_endpoints!(router, state, events[])
         return nothing
     end
-    return Servo.run!("Soleil", profile; configdir, router, setup, kw...)
+    http = try
+        Servo.run!("Soleil", profile; configdir, router, setup, kw...)
+    catch
+        events[] === nothing || close(events[])
+        rethrow()
+    end
+    return Server(http, events[])
 end
 
 """

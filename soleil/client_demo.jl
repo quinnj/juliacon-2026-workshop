@@ -3,6 +3,7 @@
 #   terminal 1:  julia --project=soleil soleil/server_demo.jl
 #   terminal 2:  julia --project=soleil soleil/client_demo.jl [base-url]
 
+using Dates
 using HTTP # lets OpenAPI.read fetch a URL
 using JSON
 using OpenAPI
@@ -44,5 +45,28 @@ println("stored a summary: ", round(stored.summary.estimated_annual_energy_kwh; 
 println("read it back, updated at ", SoleilClient.get_summary(account.id).updated_at)
 updated = SoleilClient.update_summary(account.id, SoleilClient.SimulationRequest(40.76, -111.89, 2026, 10.0))
 println("updated to ", updated.system_capacity_kw, " kW: ", round(updated.summary.estimated_annual_energy_kwh; digits=1), " kWh")
+
+# A weather provider posts an advisory with its own secret. The server returns
+# once NATS JetStream has stored it; a background worker then tags the matching
+# summaries, so poll for the tag.
+now = Dates.now(Dates.UTC)
+utah = SoleilClient.GeoBounds(37.0, -114.1, 42.1, -109.0)
+advisory = SoleilClient.WeatherAdvisory(
+    "utah-hail-$(time_ns())", "hail", "severe", "Large hail may damage exposed panels",
+    utah, now - Dates.Minute(5), now + Dates.Hour(1),
+)
+SoleilClient.authorization!("soleil-demo-weather-secret")
+receipt = SoleilClient.receive_weather_advisory(advisory)
+println("queued a weather advisory at stream sequence ", receipt.stream_sequence)
+SoleilClient.authorization!(token.access_token)
+weather = SoleilClient.get_weather_status(account.id)
+deadline = time() + 10
+while isempty(weather.advisories) && time() < deadline
+    sleep(0.1)
+    global weather = SoleilClient.get_weather_status(account.id)
+end
+tag = only(weather.advisories)
+println("weather tag: ", tag.severity, " ", tag.kind, ": ", tag.headline)
+
 SoleilClient.delete_summary(account.id)
 println("deleted the stored summary")

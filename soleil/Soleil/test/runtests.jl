@@ -1,14 +1,17 @@
 using AbstractStores
+using Dates
 using Encid
 using Harbor
 using HTTP
 using JSON
 using JWTs
+using NATS
 using OAuth
 using OpenAPI
 using Servo
 using Solar
 using Soleil
+using Tempus
 using Test
 
 docker_available() = Sys.which("docker") !== nothing && success(`docker info`)
@@ -41,10 +44,17 @@ function test_persistence(settings)
     return original.backend
 end
 
+function post_json(url, body; token=nothing)
+    headers = ["Content-Type" => "application/json"]
+    token === nothing || push!(headers, "Authorization" => "Bearer $token")
+    return HTTP.post(url, headers, JSON.json(body); status_exception=false)
+end
+
 # Like client_demo.jl: generate a client from the running service. This runs
 # before the tests, so they can call the module the include defines. Port 0
 # picks a free port.
 configs = Dict{String,Any}("port" => 0, "state" => Dict{String,Any}("backend" => "memory"))
+empty!(Servo.CONFIG)
 server = Soleil.run!(; host="127.0.0.1", configs, accesslog=false, log=false)
 base = "http://127.0.0.1:$(Servo.port(server))"
 document = OpenAPI.read("$base/openapi.json")
@@ -240,6 +250,120 @@ end
                     # Postgres restarts once after initializing, so wait for a real connection.
                     retry(() -> configured_backend(settings); delays=fill(0.5, 60))()
                     test_persistence(settings)
+                end
+            end
+        end
+    end
+
+    @testset "weather advisory matching and expiry" begin
+        state = Soleil._new_application_state()
+        password = "correct horse battery staple"
+        utah = Soleil._create_account!(state, Soleil.Credentials("utah@example.com", password))
+        london = Soleil._create_account!(state, Soleil.Credentials("london@example.com", password))
+        Soleil._create_summary!(state, utah.id, Soleil.SimulationRequest(40.76, -111.89, 2026, 8.0))
+        Soleil._create_summary!(state, london.id, Soleil.SimulationRequest(51.51, -0.13, 2026, 8.0))
+        now = Dates.now(UTC)
+        utah_box = Soleil.GeoBounds(37.0, -114.1, 42.1, -109.0)
+        advisory = Soleil.WeatherAdvisory("utah-hail", "hail", "severe", "Large hail", utah_box, now - Minute(5), now + Hour(1))
+
+        @test Soleil._apply_weather_advisory!(state, advisory) == 1
+        @test only(Soleil._weather_status(state, utah.id).advisories).id == advisory.id
+        @test isempty(Soleil._weather_status(state, london.id).advisories)
+        # Applying the same advisory again replaces it.
+        @test Soleil._apply_weather_advisory!(state, advisory) == 1
+        @test length(Soleil._weather_status(state, utah.id).advisories) == 1
+
+        date_line = Soleil.GeoBounds(37.0, 170.0, 42.1, -170.0)
+        crossing = Soleil.WeatherAdvisory("wind", "wind", "moderate", "Wind", date_line, now, now + Hour(1))
+        @test_throws ArgumentError Soleil._validate_weather_advisory(crossing)
+
+        @test Soleil._expire_weather_advisories!(state, advisory.ends_at) == 1
+        @test isempty(Soleil._weather_status(state, utah.id).advisories)
+
+        # Moving a summary drops the advisories matched to its old location.
+        Soleil._apply_weather_advisory!(state, advisory)
+        Soleil._update_summary!(state, utah.id, Soleil.SimulationRequest(51.51, -0.13, 2026, 8.0))
+        @test isempty(Soleil._weather_status(state, utah.id).advisories)
+        @test Soleil._apply_weather_advisory!(state, advisory) == 0
+    end
+
+    @testset "weather events through NATS and Tempus" begin
+        if !docker_available()
+            @test_skip "Docker is not available"
+        else
+            Harbor.with_container(
+                "nats";
+                tag="2.10.18",
+                ports=Dict(4222 => 0),
+                command=["--jetstream"],
+                wait_strategy=(port=4222,),
+                wait_timeout=120.0,
+            ) do container
+                mktempdir() do directory
+                    secret = "integration-weather-secret"
+                    events = Dict{String,Any}(
+                        "enabled" => true,
+                        "webhook_secret" => secret,
+                        "cleanup_schedule" => "* * * * * *",
+                        "logging" => false,
+                        "nats" => Dict{String,Any}("url" => "nats://127.0.0.1:$(Harbor.host_port(container, 4222))"),
+                    )
+                    configs = Dict{String,Any}(
+                        "port" => 0,
+                        "state" => Dict{String,Any}("backend" => "file", "path" => directory),
+                        "events" => events,
+                    )
+                    empty!(Servo.CONFIG)
+                    server = Soleil.run!(; host="127.0.0.1", configs, accesslog=false, log=false)
+                    try
+                        base = "http://127.0.0.1:$(Servo.port(server))"
+                        credentials = Soleil.Credentials("utah@example.com", "correct horse battery staple")
+                        post_json("$base/v1/accounts", credentials)
+                        login = JSON.parse(String(post_json("$base/v1/login", credentials).body), Soleil.LoginResponse)
+                        input = Soleil.SimulationRequest(40.76, -111.89, 2026, 8.0)
+                        @test post_json("$base/v1/simulate/$(login.user_id)", input; token=login.access_token).status == 200
+                        weather() = JSON.parse(
+                            String(HTTP.get("$base/v1/weather/$(login.user_id)", ["Authorization" => "Bearer $(login.access_token)"]).body),
+                            Soleil.WeatherStatus,
+                        )
+
+                        now = trunc(Dates.now(UTC), Second)
+                        utah_box = Soleil.GeoBounds(37.0, -114.1, 42.1, -109.0)
+                        advisory = Soleil.WeatherAdvisory("utah-hail", "hail", "severe", "Large hail", utah_box, now - Minute(1), now + Second(8))
+                        webhook = "$base/v1/webhooks/weather-advisories"
+                        @test post_json(webhook, advisory).status == 401
+                        crossing = Soleil.WeatherAdvisory("wind", "wind", "moderate", "Wind", Soleil.GeoBounds(37.0, 170.0, 42.1, -170.0), now, now + Hour(1))
+                        @test post_json(webhook, crossing; token=secret).status == 400
+
+                        accepted = post_json(webhook, advisory; token=secret)
+                        @test accepted.status == 200
+                        receipt = JSON.parse(String(accepted.body), Soleil.WeatherAdvisoryReceipt)
+                        @test receipt.event_id == advisory.id
+                        @test receipt.stream_sequence > 0
+                        @test !receipt.duplicate
+                        # The worker applies the advisory once JetStream delivers it.
+                        @test timedwait(() -> length(weather().advisories) == 1, 10; pollint=0.1) == :ok
+
+                        # JetStream recognizes a retried webhook by the advisory id.
+                        duplicate = JSON.parse(String(post_json(webhook, advisory; token=secret).body), Soleil.WeatherAdvisoryReceipt)
+                        @test duplicate.duplicate
+                        @test duplicate.stream_sequence == receipt.stream_sequence
+
+                        # The Tempus job, running every second, removes it after `ends_at`.
+                        @test timedwait(() -> isempty(weather().advisories), 15; pollint=0.1) == :ok
+                        history = Tempus.getNMostRecentJobExecutions(server.events.scheduler.store, Soleil.WEATHER_CLEANUP_JOB, 10)
+                        @test !isempty(history)
+                        @test all(execution -> execution.succeeded, history)
+                        stream = NATS.JetStream.stream_info(server.events.connection, Soleil.WEATHER_STREAM; timeout=10)
+                        @test Int(stream.state.messages) == 1
+
+                        # Tempus keeps its job and history in the same backend as Soleil.
+                        stored_keys = collect(keys(AbstractStores.FileStore(directory; codec=AbstractStores.JSONCodec())))
+                        @test any(startswith("tempus/jobs/"), stored_keys)
+                        @test any(startswith("tempus/executions/"), stored_keys)
+                    finally
+                        close(server)
+                    end
                 end
             end
         end

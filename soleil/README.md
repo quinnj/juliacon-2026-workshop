@@ -123,7 +123,54 @@ untrusted source.
 [JuliaServices/Redis.jl](https://github.com/JuliaServices/Redis.jl) is not in
 the General registry, so `Project.toml` pins a commit of it, and AbstractStores
 cannot declare its Redis extension yet. Soleil includes the extension's source
-file directly instead.
+file directly instead. [JuliaServices/NATS.jl](https://github.com/JuliaServices/NATS.jl),
+used below, is pinned the same way.
+
+## Weather events
+
+Soleil can take weather advisories from an external provider and tag the stored
+summaries they affect:
+
+1. A provider posts an advisory to `/v1/webhooks/weather-advisories`,
+   authenticated with its own bearer secret (`events.webhook_secret`), not a
+   user token.
+2. [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) stores the
+   advisory before the webhook responds, and ignores a retry that repeats the
+   advisory's id.
+3. A background worker pulls advisories with explicit acknowledgements and tags
+   every stored summary inside the advisory's latitude/longitude box. Applying
+   an advisory twice changes nothing.
+4. A [Tempus](https://github.com/JuliaServices/Tempus.jl) job removes tags once
+   their advisory has ended. Tempus keeps the job and its run history in the
+   same state backend as everything else, under `tempus/`.
+
+A user reads their tags from `GET /v1/weather/{userId}`.
+
+Events are off in `config.toml`, because they need a NATS server. The server
+demo turns them on, starts NATS in a temporary container, and looks for expired
+advisories every ten seconds instead of hourly:
+
+```sh
+julia --project=soleil soleil/server_demo.jl [backend]
+```
+
+[client_demo.jl](client_demo.jl) then posts an advisory over Utah and waits for
+its tag on the demo user's summary. A webhook request looks like this:
+
+```sh
+curl -X POST http://127.0.0.1:9001/v1/webhooks/weather-advisories \
+  -H 'Authorization: Bearer soleil-demo-weather-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"id": "utah-hail-001", "kind": "hail", "severity": "severe",
+       "headline": "Large hail may damage exposed panels",
+       "bounds": {"south": 37.0, "west": -114.1, "north": 42.1, "east": -109.0},
+       "starts_at": "2099-06-01T18:00:00", "ends_at": "2099-06-01T22:00:00"}'
+```
+
+Matching is a plain bounding-box test: an advisory is a rectangle that cannot
+cross the date line, the worker scans every stored summary, and an advisory
+tags only the summaries that exist when it is processed. Set a real
+`events.webhook_secret` through a secret source, never in `config.toml`.
 
 ## Tests
 
