@@ -30,3 +30,19 @@ catch error
     error isa SoleilClient.ApiError || rethrow()
     println("simulate(95.0, -111.89) -> ApiError ", error.status, ": ", JSON.parse(error.body).error.message)
 end
+
+# Create an account and trade its credentials for a bearer token.
+credentials = SoleilClient.Credentials("solar-$(time_ns())@example.com", "correct horse battery staple")
+account = SoleilClient.create_account(credentials)
+token = SoleilClient.login(credentials)
+println("created account ", account.id, "; its token expires in ", token.expires_in, " s")
+
+# The client sends the token only to operations the OpenAPI document marks secured.
+SoleilClient.authorization!(token.access_token)
+stored = SoleilClient.create_summary(account.id, SoleilClient.SimulationRequest(40.76, -111.89, 2026, 8.0))
+println("stored a summary: ", round(stored.summary.estimated_annual_energy_kwh; digits=1), " kWh")
+println("read it back, updated at ", SoleilClient.get_summary(account.id).updated_at)
+updated = SoleilClient.update_summary(account.id, SoleilClient.SimulationRequest(40.76, -111.89, 2026, 10.0))
+println("updated to ", updated.system_capacity_kw, " kW: ", round(updated.summary.estimated_annual_energy_kwh; digits=1), " kWh")
+SoleilClient.delete_summary(account.id)
+println("deleted the stored summary")

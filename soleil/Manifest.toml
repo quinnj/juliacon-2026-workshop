@@ -4,6 +4,25 @@ julia_version = "1.13.3"
 manifest_format = "2.1"
 project_hash = "48161cd0f74d31c2fbcc806545a142e24783ddfa"
 
+[[deps.AbstractStores]]
+deps = ["Base64", "Dates", "Serialization"]
+git-tree-sha1 = "f7522e84618b33645fb9ad364279af033221135a"
+registries = "General"
+uuid = "b8592f88-5fd7-4e10-8c52-04e8e19aea3c"
+version = "0.2.4"
+
+    [deps.AbstractStores.extensions]
+    AbstractStoresCloudStoreExt = "CloudStore"
+    AbstractStoresDBInterfaceExt = "DBInterface"
+    AbstractStoresJSONExt = "JSON"
+    AbstractStoresTestExt = "Test"
+
+    [deps.AbstractStores.weakdeps]
+    CloudStore = "3365d9ee-d53b-4a56-812d-5344d5b716d7"
+    DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
+    JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 version = "1.11.0"
@@ -24,6 +43,13 @@ deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 version = "1.11.0"
 
+[[deps.Encid]]
+deps = ["Random"]
+git-tree-sha1 = "6f6b18ea53e4b4cc1dbdacfccc4584d4008f2c8f"
+registries = "General"
+uuid = "22e113d6-bca1-46f4-8715-c46169ad70b7"
+version = "1.0.0"
+
 [[deps.EnumX]]
 git-tree-sha1 = "c49898e8438c828577f04b92fc9368c388ac783c"
 registries = "General"
@@ -36,6 +62,10 @@ git-tree-sha1 = "354a5b0c9e166571b0c0173724f2c38fb8885472"
 registries = "General"
 uuid = "937e9308-674a-48ca-a404-047094c8c902"
 version = "1.5.0"
+
+[[deps.FileWatching]]
+uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
 
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "Dates", "EnumX", "Logging", "PrecompileTools", "Random", "Reseau", "SHA", "TranscodingStreams", "URIs", "UUIDs", "Zlib_jll"]
@@ -72,6 +102,13 @@ version = "1.13.3"
     ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
     Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
+[[deps.JWTs]]
+deps = ["HTTP", "JSON", "OpenSSL_jll", "SHA"]
+git-tree-sha1 = "ea78b264f7473d8fb3fea7572642823a1574dfe9"
+registries = "General"
+uuid = "d850fbd6-035d-5a70-a269-1ca2e636ac6c"
+version = "1.2.0"
+
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 version = "1.11.0"
@@ -90,6 +127,13 @@ version = "1.11.0"
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.3.0"
+
+[[deps.OAuth]]
+deps = ["AbstractStores", "Dates", "FileWatching", "HTTP", "JSON", "JWTs", "OpenSSL_jll", "Random", "SHA", "Sockets", "StructUtils"]
+git-tree-sha1 = "733832d33f0aaad5c68eef7d389723565a2af0a4"
+registries = "General"
+uuid = "22d8b318-f366-56fb-a292-a93f7d76c017"
+version = "4.6.1"
 
 [[deps.OpenAPI]]
 deps = ["Base64", "Dates", "JSON", "PrecompileTools", "SHA", "URIs", "UUIDs", "YAML"]
@@ -187,7 +231,7 @@ uuid = "2ae91c1a-bb75-4278-95c9-cd8aec436ad6"
 version = "0.1.0"
 
 [[deps.Soleil]]
-deps = ["Dates", "JSON", "OpenAPI", "Servo", "Solar"]
+deps = ["AbstractStores", "Dates", "Encid", "JSON", "JWTs", "OAuth", "OpenAPI", "Random", "SHA", "Servo", "Solar"]
 path = "Soleil"
 uuid = "787307b9-c09c-4ced-bd39-b3ea68e2cacb"
 version = "0.1.0"

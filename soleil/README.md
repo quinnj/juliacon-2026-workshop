@@ -48,6 +48,40 @@ calls `SoleilClient.simulate(40.76, -111.89; system_capacity_kw=8.0)`, which
 returns a typed `SolarSummary`, and shows a validation error coming back as a
 typed `SoleilClient.ApiError`. `SoleilClient.jl` is regenerated on every run.
 
+## Accounts and authentication
+
+Soleil keeps accounts, issued tokens, and one stored summary per user in
+memory, so they reset when the server restarts. Account ids are 128-bit random
+[Encid](https://github.com/JuliaServices/Encid.jl) ids, written in Base58.
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/v1/accounts` | Public | Create an account from an email and password |
+| `POST` | `/v1/login` | Public | Check the credentials and return a bearer token |
+| `POST` | `/v1/simulate/{userId}` | Bearer | Create the user's stored summary |
+| `GET` | `/v1/simulate/{userId}` | Bearer | Read the user's stored summary |
+| `PUT` | `/v1/simulate/{userId}` | Bearer | Replace the user's stored summary |
+| `DELETE` | `/v1/simulate/{userId}` | Bearer | Delete the user's stored summary |
+
+[OAuth.jl](https://github.com/JuliaServices/OAuth.jl) issues RS256-signed JWT
+access tokens and records each one. On a private request, `Servo.BearerAuth`
+reads the `Authorization` header and calls Soleil's token validator.
+[JWTs.jl](https://github.com/JuliaWeb/JWTs.jl) checks the signature, issuer,
+audience, expiry, and required claims, then OAuth.jl confirms that it issued
+the token and has not revoked it. The validator's result becomes
+`Servo.principal()`, and each handler checks that the token's user owns the
+`{userId}` in the path.
+
+`/v1/login` is an application endpoint, not an OAuth password grant: Soleil
+checks the password itself, then asks OAuth.jl's token service for a token.
+
+Passwords are stored as a salted SHA-256 digest. That keeps them out of plain
+text, but SHA-256 is not a password hash; a production service needs Argon2id,
+scrypt, or bcrypt.
+
+[client_demo.jl](client_demo.jl) now also creates an account, logs in, and
+creates, reads, updates, and deletes that account's stored summary.
+
 ## Tests
 
 From the repository root:
