@@ -3,6 +3,7 @@ AbstractStores = "b8592f88-5fd7-4e10-8c52-04e8e19aea3c"
 Harbor = "af79dbb9-1a80-47ad-8928-192a4af69376"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+ModelContextProtocol = "a630a0b0-4325-47f6-86f8-c7db38e4394e"
 NATS = "f328b29d-6d55-4807-8dcb-f542605a7cb8"
 OpenAPI = "d5e62ea6-ddf3-4d43-8e4c-ad5e6c8bfd7d"
 Servo = "169596a4-850b-412e-9996-453439081821"
@@ -11,6 +12,7 @@ Soleil = "787307b9-c09c-4ced-bd39-b3ea68e2cacb"
 Tempus = "e6262be2-5787-4bdc-bc3f-4b5a3442fa30"
 
 [sources]
+ModelContextProtocol = {url = "https://github.com/JuliaServices/ModelContextProtocol.jl.git", rev = "3b4cf1c9ed2cdc9eb8933387c986ceaf4edd5ac8"}
 NATS = {url = "https://github.com/JuliaServices/NATS.jl.git", rev = "800aa6a69432b5a9f06060c6d24b84b5fa158e08"}
 Solar = {path = "Solar"}
 Soleil = {path = "Soleil"}
@@ -20,6 +22,7 @@ AbstractStores = "0.2.4"
 Harbor = "1.1"
 HTTP = "2.14.1"
 JSON = "1.13.3"
+ModelContextProtocol = "1.1"
 NATS = "0.1"
 OpenAPI = "1.2"
 Servo = "2.2"

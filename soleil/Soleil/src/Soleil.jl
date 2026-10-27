@@ -1,8 +1,8 @@
 """
 Soleil serves the Solar package as a JSON web service, with user accounts and
-stored summaries behind bearer-token authentication. Its state lives in JSON
-files. Optionally, it receives weather
-advisories through NATS JetStream and expires them with a Tempus job.
+stored summaries behind bearer-token authentication, and as a Model Context
+Protocol tool at `/mcp`. Its state lives in JSON files. Optionally, it receives
+weather advisories through NATS JetStream and expires them with a Tempus job.
 
 Start it with `Soleil.run()`, which blocks, or `Soleil.run!()`, which returns
 the server. The service describes itself at `/openapi.json`, so a client can be
@@ -19,6 +19,7 @@ using Encid
 using JSON # loads Servo's JSON response format and AbstractStores' JSON codec
 using JWTs
 using Logging
+using ModelContextProtocol
 using NATS
 using OAuth
 using OpenAPI
@@ -34,6 +35,7 @@ const DEFAULT_CONFIG_DIR = normpath(joinpath(@__DIR__, "..", ".."))
 include("summaries.jl")
 include("events.jl")
 include("auth.jl")
+include("mcp.jl")
 
 """
     _register_endpoints!(router, state, events=nothing) -> router
@@ -180,6 +182,7 @@ function run!(profile::AbstractString=""; configdir=DEFAULT_CONFIG_DIR, kw...)
         state = _new_application_state(_configured_state_backend(configdir))
         events[] = _configured_event_runtime(state)
         _register_endpoints!(router, state, events[])
+        _register_mcp!(router)
         OpenAPI.register!(router, OPENAPI_JSON)
         return nothing
     end

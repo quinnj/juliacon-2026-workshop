@@ -14,7 +14,7 @@ function _precompile_endpoints()
     Servo.loadconfig!(; configs=Dict{String,Any}("events" => Dict{String,Any}("webhook_secret" => secret)), log=false)
     mktempdir() do directory
         state = _new_application_state(AbstractStores.FileStore(directory; codec=AbstractStores.JSONCodec()))
-        router = _register_endpoints!(Servo.Router(), state)
+        router = _register_mcp!(_register_endpoints!(Servo.Router(), state))
         OpenAPI.register!(router, OPENAPI_JSON)
         Servo.registerbuiltins!(router)
         server = Servo.serve!(router; host="127.0.0.1", port=0, cors=true, accesslog=true)
@@ -48,6 +48,14 @@ function _precompile_endpoints()
             advisory = WeatherAdvisory("precompile", "hail", "severe", "Hail", bounds, now, now + Hour(1))
             _expect(503, request("POST", "/v1/webhooks/weather-advisories", advisory; token=secret))
             _expect(204, request("DELETE", summary; token))
+
+            for (method, params) in (
+                ("initialize", (; protocolVersion="2025-11-25", capabilities=(;), clientInfo=(; name="precompile", version="1"))),
+                ("tools/list", (;)),
+                ("tools/call", (; name="simulate_solar_exposure", arguments=(; latitude=40.76, longitude=-111.89))),
+            )
+                _expect(200, request("POST", "/mcp", (; jsonrpc="2.0", id=1, method, params)))
+            end
         finally
             close(server)
         end

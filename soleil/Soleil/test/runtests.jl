@@ -144,6 +144,34 @@ end
         SoleilClient.authorization!(token.access_token * "x")
         @test status(() -> SoleilClient.get_summary(account.id)) == 401
     end
+
+    @testset "MCP tool" begin
+        rpc(method, params) = JSON.parse(String(post_json("$base/mcp", (; jsonrpc="2.0", id=1, method, params)).body))
+        initialized = rpc("initialize", (; protocolVersion="2025-11-25", capabilities=(;), clientInfo=(; name="test", version="1")))
+        @test initialized["result"]["serverInfo"]["name"] == "Soleil"
+        tool = only(rpc("tools/list", (;))["result"]["tools"])
+        @test tool["name"] == "simulate_solar_exposure"
+        @test tool["inputSchema"]["required"] == ["latitude", "longitude"]
+
+        arguments = (; latitude=40.76, longitude=-111.89, year=2026, system_capacity_kw=8.0)
+        result = rpc("tools/call", (; name="simulate_solar_exposure", arguments))["result"]
+        expected = Solar.simulate(40.76, -111.89; year=2026, system_capacity_kw=8.0).summary
+        @test !result["isError"]
+        @test occursin("clear-sky estimate", only(result["content"])["text"])
+        structured = result["structuredContent"]
+        @test structured["config"]["system_capacity_kw"] == 8.0
+        @test structured["summary"]["estimated_annual_energy_kwh"] ≈ expected.estimated_annual_energy_kwh
+        @test length(structured["summary"]["monthly"]) == 12
+        @test !haskey(structured, "daily")
+
+        # Invalid arguments come back as a tool error the model can read.
+        for arguments in [(; latitude=95.0, longitude=0.0), (; longitude=0.0)]
+            invalid = rpc("tools/call", (; name="simulate_solar_exposure", arguments))["result"]
+            @test invalid["isError"]
+            @test occursin("latitude", only(invalid["content"])["text"])
+        end
+        @test HTTP.get("$base/mcp"; status_exception=false).status == 405
+    end
     close(server)
 
     @testset "endpoints must declare auth" begin

@@ -1,9 +1,9 @@
 # This file is machine-generated - editing it directly is not advised
 
-environment_id = "ca9c311e-c10a-482c-be08-ae85cb3c25a4"  # generated
+environment_id = "105288b8-0040-4f1f-8887-2ccf4881dc48"  # generated
 julia_version = "1.14.0-alpha2"
 manifest_format = "2.2"
-project_hash = "b6ce81ad6fac8aa851aaa3a8691f33fea33ef491"
+project_hash = "ca8167085cf2b6f0d1248bc368ad8f0118497bcf"
 
 [[deps.AbstractStores]]
 deps = ["Base64", "Dates", "Serialization"]
@@ -220,6 +220,22 @@ version = "1.13.3"
     ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
     Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
+[[deps.JSONSchema]]
+deps = ["Downloads", "JSON", "URIs"]
+git-tree-sha1 = "5864ebcd5d9c6966c35bc29e536c8b40d713c00c"
+registries = "General"
+uuid = "7d188eb4-7ad8-530c-ae41-71a32a6d4692"
+version = "1.6.0"
+
+    [deps.JSONSchema.extensions]
+    JSONSchemaJSON3Ext = "JSON3"
+
+    [deps.JSONSchema.syntax]
+    julia_version = "1.9.0"
+
+    [deps.JSONSchema.weakdeps]
+    JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+
 [[deps.JWTs]]
 deps = ["HTTP", "JSON", "OpenSSL_jll", "SHA"]
 git-tree-sha1 = "ea78b264f7473d8fb3fea7572642823a1574dfe9"
@@ -287,6 +303,25 @@ version = "0.8.1"
 
     [deps.Mocking.syntax]
     julia_version = "1.0.0"
+
+[[deps.ModelContextProtocol]]
+deps = ["Base64", "Dates", "Downloads", "HTTP", "JSON", "JSONSchema", "Logging", "Random", "SHA", "Sockets", "UUIDs"]
+git-tree-sha1 = "8d1da51186f8d8ecf1381319d3fd7e824ba8ea13"
+repo-rev = "3b4cf1c9ed2cdc9eb8933387c986ceaf4edd5ac8"
+repo-url = "https://github.com/JuliaServices/ModelContextProtocol.jl.git"
+uuid = "a630a0b0-4325-47f6-86f8-c7db38e4394e"
+version = "1.1.0"
+
+    [deps.ModelContextProtocol.extensions]
+    ModelContextProtocolAgentifExt = ["Agentif"]
+    ModelContextProtocolOAuthExt = ["OAuth"]
+
+    [deps.ModelContextProtocol.syntax]
+    julia_version = "1.10.0"
+
+    [deps.ModelContextProtocol.weakdeps]
+    Agentif = "b1e21dde-9d8e-492f-89d0-ee48af23bfc5"
+    OAuth = "22d8b318-f366-56fb-a292-a93f7d76c017"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
@@ -468,7 +503,7 @@ version = "0.1.0"
     julia_version = "1.12.0"
 
 [[deps.Soleil]]
-deps = ["AbstractStores", "Dates", "Encid", "JSON", "JWTs", "Logging", "NATS", "OAuth", "OpenAPI", "PrecompileTools", "Random", "SHA", "Servo", "Solar", "Tempus"]
+deps = ["AbstractStores", "Dates", "Encid", "JSON", "JWTs", "Logging", "ModelContextProtocol", "NATS", "OAuth", "OpenAPI", "PrecompileTools", "Random", "SHA", "Servo", "Solar", "Tempus"]
 path = "Soleil"
 uuid = "787307b9-c09c-4ced-bd39-b3ea68e2cacb"
 version = "0.1.0"

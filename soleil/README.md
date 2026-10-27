@@ -212,6 +212,30 @@ julia +1.14.0-alpha2 --project=soleil soleil/client_demo.jl
 The first `simulate` request is as fast as the second: there is no compiler in
 the image, and nothing left to compile.
 
+## Model Context Protocol
+
+Soleil also serves one [Model Context Protocol](https://modelcontextprotocol.io)
+tool at `POST /mcp`, so an AI agent can run simulations itself.
+`simulate_solar_exposure` takes the same inputs as the public simulation
+endpoint, and only latitude and longitude are required. It answers with a short
+text summary for the model to read, plus the location, settings, and annual and
+monthly totals as structured JSON. Invalid inputs come back as a tool error
+that says what to fix.
+
+`client_demo.jl` ends with the request an agent sends to call the tool. To add
+the running server to Claude Code:
+
+```sh
+claude mcp add --transport http soleil http://127.0.0.1:9001/mcp
+```
+
+The tool is public, like the simulation endpoint. The endpoint is stateless: it
+keeps no sessions, so any Soleil process can answer any client. It uses
+ModelContextProtocol's static server, whose request handling has concrete
+types, so the trimmed binary serves it too.
+[JuliaServices/ModelContextProtocol.jl](https://github.com/JuliaServices/ModelContextProtocol.jl)
+is not in the General registry, so `Project.toml` pins a commit of it.
+
 ## Tests
 
 From the repository root:

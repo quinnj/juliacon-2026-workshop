@@ -78,3 +78,9 @@ println("weather tag: ", tag.severity, " ", tag.kind, ": ", tag.headline)
 
 SoleilClient.delete_summary(account.id)
 println("deleted the stored summary")
+
+# An AI agent uses the MCP tool through one JSON-RPC request to /mcp.
+call = (; jsonrpc="2.0", id=1, method="tools/call",
+    params=(; name="simulate_solar_exposure", arguments=(; latitude=40.76, longitude=-111.89)))
+answer = JSON.parse(HTTP.post("$server_url/mcp", ["Content-Type" => "application/json"], JSON.json(call)).body)
+println("MCP tool: ", only(answer.result.content).text)
