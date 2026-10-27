@@ -1,7 +1,7 @@
 """
 Soleil serves the Solar package as a JSON web service, with user accounts and
-stored summaries behind bearer-token authentication. Its state lives in one
-AbstractStores backend chosen by configuration. Optionally, it receives weather
+stored summaries behind bearer-token authentication. Its state lives in JSON
+files. Optionally, it receives weather
 advisories through NATS JetStream and expires them with a Tempus job.
 
 Start it with `Soleil.run()`, which blocks, or `Soleil.run!()`, which returns
@@ -15,7 +15,6 @@ module Soleil
 
 using AbstractStores
 using Dates
-using DBInterface
 using Encid
 using JSON # loads Servo's JSON response format and AbstractStores' JSON codec
 using JWTs
@@ -23,23 +22,14 @@ using Logging
 using NATS
 using OAuth
 using OpenAPI
-using Postgres
 using PrecompileTools: @compile_workload, @setup_workload
 using Random
-using Redis
 using SHA
 using Servo
 using Solar
-using SQLite
 using Tempus
 
 const DEFAULT_CONFIG_DIR = normpath(joinpath(@__DIR__, "..", ".."))
-
-# AbstractStores' Redis backend lives in a package extension it cannot declare
-# yet: a registered package may only name registered weak dependencies, and
-# JuliaServices/Redis.jl is not registered. AbstractStores documents including
-# the extension file directly until then.
-include(joinpath(pkgdir(AbstractStores), "ext", "AbstractStoresRedisExt.jl"))
 
 include("summaries.jl")
 include("events.jl")
@@ -161,56 +151,16 @@ const OPENAPI_JSON = JSON.json(OpenAPI.document(
     version=string(pkgversion(@__MODULE__)),
 ))
 
-# A relative path in the configuration is relative to the configuration directory.
-function _config_path(configdir, key::String, default::String)
-    path = Servo.config(key, default)
-    return configdir === nothing || isabspath(path) ? path : normpath(joinpath(configdir, path))
-end
-
 """
-    _configured_state_backend(configdir) -> AbstractStores.AbstractStore
+    _configured_state_backend(configdir) -> AbstractStores.FileStore
 
-Open the backend that the `state.backend` setting names: `"memory"`, `"file"`
-(the default), `"redis"`, `"sqlite"`, or `"postgres"`. The SQL backends create
-their table if it does not exist.
+Open the JSON file store at the `state.path` setting, which is relative to
+`configdir` unless it is absolute.
 """
 function _configured_state_backend(configdir)
-    backend = Servo.config("state.backend", "file")
-    table = Servo.config("state.sql.table", "soleil_state")
-    if backend == "memory"
-        return AbstractStores.MemoryStore()
-    elseif backend == "file"
-        # JSON files are readable and do not depend on the Julia version.
-        path = _config_path(configdir, "state.path", "state")
-        return AbstractStores.FileStore(path; codec=AbstractStores.JSONCodec())
-    elseif backend == "redis"
-        client = Redis.connect(
-            Servo.config("state.redis.host", "127.0.0.1"),
-            Servo.config("state.redis.port", 6379);
-            db=Servo.config("state.redis.db", 0),
-        )
-        prefix = Servo.config("state.redis.prefix", "soleil-state/")
-        return AbstractStores.PrefixedStore{Any}(AbstractStores.RedisStore{Any}(client), prefix)
-    elseif backend == "sqlite"
-        database = SQLite.DB(_config_path(configdir, "state.sqlite.path", "state.sqlite"))
-        return AbstractStores.SQLStore{Any}(database; table)
-    elseif backend == "postgres"
-        user = Servo.config("state.postgres.user", "postgres")
-        connection = DBInterface.connect(
-            Postgres.Connection,
-            Servo.config("state.postgres.host", "127.0.0.1"),
-            user,
-            Servo.config("state.postgres.password", nothing);
-            dbname=Servo.config("state.postgres.database", user),
-            port=Servo.config("state.postgres.port", 5432),
-            connect_timeout=Servo.config("state.postgres.connect_timeout", 5),
-            sslmode=Servo.config("state.postgres.sslmode", "disable"),
-        )
-        return AbstractStores.SQLStore{Any}(connection; table)
-    end
-    throw(ArgumentError(
-        "unknown state backend $(repr(backend)); expected memory, file, redis, sqlite, or postgres",
-    ))
+    path = Servo.config("state.path", "state")
+    configdir === nothing || isabspath(path) || (path = normpath(joinpath(configdir, path)))
+    return AbstractStores.FileStore(path; codec=AbstractStores.JSONCodec())
 end
 
 """

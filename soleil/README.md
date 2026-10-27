@@ -7,7 +7,7 @@ The Julia environment for the Soleil project. [`Solar`](Solar/) and
 Start Julia in this environment:
 
 ```sh
-julia --project=soleil
+julia +1.14.0-alpha2 --project=soleil
 ```
 
 Then run a one-year solar simulation:
@@ -29,7 +29,7 @@ totals. The [Solar README](Solar/README.md) covers the API and the model.
 of the API at `/openapi.json`. Start it from the repository root:
 
 ```sh
-julia --project=soleil soleil/server_demo.jl
+julia +1.14.0-alpha2 --project=soleil soleil/server_demo.jl
 ```
 
 The server reads [`config.toml`](config.toml), which sets `port = 9001`. A
@@ -39,7 +39,7 @@ In a second terminal, generate a typed client from the running service and call
 it:
 
 ```sh
-julia --project=soleil soleil/client_demo.jl
+julia +1.14.0-alpha2 --project=soleil soleil/client_demo.jl
 ```
 
 [client_demo.jl](client_demo.jl) reads `/openapi.json` and writes
@@ -85,46 +85,22 @@ creates, reads, updates, and deletes that account's stored summary.
 ## State
 
 Soleil keeps all of its state (accounts, stored summaries, issued tokens, and
-the JWT signing key) in one
-[AbstractStores](https://github.com/JuliaServices/AbstractStores.jl) backend.
-Each kind of record is a typed view of that backend under its own key prefix,
-so one backend is one thing to back up. Emails are hashed before they become
-keys. The `[state]` table in [`config.toml`](config.toml) chooses the backend:
+the JWT signing key) in an
+[AbstractStores](https://github.com/JuliaServices/AbstractStores.jl) file
+store: one JSON file per key under the `[state]` table's `path`, which is
+`soleil/state/` by default. Each kind of record is a typed view of that store
+under its own key prefix, and emails are hashed before they become keys.
 
-| `backend` | Settings | Stores state |
-| --- | --- | --- |
-| `memory` | | In the server process, until it exits |
-| `file` (default) | `path` | As one JSON file per key, under `soleil/state/` |
-| `redis` | `redis.host`, `redis.port`, `redis.db`, `redis.prefix` | In Redis |
-| `sqlite` | `sqlite.path`, `sql.table` | In one table of `soleil/state.sqlite` |
-| `postgres` | `postgres.host`, `postgres.port`, `postgres.user`, `postgres.password`, `postgres.database`, `sql.table` | In one Postgres table |
+Earlier checkpoints let configuration choose memory, Redis, SQLite, or Postgres
+instead. A compiled binary contains only the code it can reach, so this
+checkpoint keeps just the backend it deploys.
 
-The server demo takes the backend as its argument and uses memory by default:
+The file store writes each value atomically, but it coordinates
+read-modify-write updates only within one process, so run one Soleil process
+per state directory.
 
-```sh
-julia --project=soleil soleil/server_demo.jl file
-```
-
-For `redis` and `postgres` the demo starts a temporary container with
-[Harbor](https://github.com/JuliaServices/Harbor.jl), so Docker must be
-running.
-
-The file backend writes each value atomically, but it coordinates
-read-modify-write updates only within one process. Redis and the SQL backends
-make those updates atomic across processes, so use one of them when several
-Soleil processes share state. The SQL backends create their table if it does
-not exist; later schema changes are up to you. Keep real database passwords out
-of `config.toml`, for example in a git-ignored `.config-<profile>.toml`.
-
-Redis and the SQL backends store values with Julia's `Serialization` stdlib,
-whose format can change between Julia versions; never load state from an
-untrusted source.
-
-[JuliaServices/Redis.jl](https://github.com/JuliaServices/Redis.jl) is not in
-the General registry, so `Project.toml` pins a commit of it, and AbstractStores
-cannot declare its Redis extension yet. Soleil includes the extension's source
-file directly instead. [JuliaServices/NATS.jl](https://github.com/JuliaServices/NATS.jl),
-used below, is pinned the same way.
+[JuliaServices/NATS.jl](https://github.com/JuliaServices/NATS.jl), used below,
+is not in the General registry, so `Project.toml` pins a commit of it.
 
 ## Weather events
 
@@ -151,7 +127,7 @@ demo turns them on, starts NATS in a temporary container, and looks for expired
 advisories every ten seconds instead of hourly:
 
 ```sh
-julia --project=soleil soleil/server_demo.jl [backend]
+julia +1.14.0-alpha2 --project=soleil soleil/server_demo.jl
 ```
 
 [client_demo.jl](client_demo.jl) then posts an advisory over Utah and waits for
@@ -172,50 +148,74 @@ cross the date line, the worker scans every stored summary, and an advisory
 tags only the summaries that exist when it is processed. Set a real
 `events.webhook_secret` through a secret source, never in `config.toml`.
 
-## Container image
-
-[`docker_server_demo.sh`](../docker_server_demo.sh) builds the repository's
-[`Dockerfile`](../Dockerfile) as `soleil:precompiled` and runs it with NATS JetStream
-on a private Docker network. It takes the state backend as its argument and
-uses memory by default; `redis` and `postgres` also start a database container:
-
-```sh
-./docker_server_demo.sh file
-```
-
-Each `PROFILE=docker-<backend>` run reads `config-docker-<backend>.toml`, which
-enables events and points at the demo's containers. The server's log streams to
-the terminal, and Enter stops it. Named volumes keep the file, SQLite, Redis,
-and Postgres state, including the JWT signing key, between runs.
-
-With the container running, run the client from a second terminal:
-
-```sh
-julia --project=soleil soleil/client_demo.jl
-```
-
-The client first times two identical `simulate` requests.
-
 ## Precompilation
 
 [`precompile.jl`](Soleil/src/precompile.jl) is a
 [PrecompileTools](https://github.com/JuliaLang/PrecompileTools.jl) workload:
 while Soleil precompiles, it starts a server and sends one request to every
-endpoint, so the compiled code is saved in Soleil's package image. The image
-build does that work once and takes longer; in exchange, the container's first
-request no longer waits for the compiler. Compare the client's two `simulate`
-timings with the previous checkpoint's. Events do not run during
-precompilation, so the workload's advisory gets the 503 response and the build
-needs no NATS server.
+endpoint. Soleil's OpenAPI document is built while it precompiles, too, so
+`/openapi.json` serves a constant string.
 
-Soleil's OpenAPI document is built while it precompiles, too:
-`/openapi.json` serves a constant string instead of describing the routes
-again on every request.
+## Trimmed binary
+
+This checkpoint compiles Soleil into a native executable with
+[JuliaC](https://github.com/JuliaLang/JuliaC.jl) and `--trim=safe`, which keeps
+only the code reachable from [`trim/main.jl`](../trim/main.jl), the same
+`Soleil.run()` a Julia process runs, and fails the build if any call could not
+be resolved ahead of time. It needs Julia 1.14, a prerelease for now, so this
+checkpoint's environment is resolved with Julia 1.14.0-alpha2, and every
+command in this README uses it:
+
+```sh
+juliaup add 1.14.0-alpha2
+julia +1.14.0-alpha2 -e 'using Pkg; Pkg.Apps.add(name="JuliaC", version="0.3.12")'
+cd trim
+juliac --output-exe soleil --bundle ../build --project ../soleil --trim=safe --experimental main.jl
+../build/bin/soleil
+```
+
+JuliaC links the executable in the current directory before it moves it into
+the bundle, so the build runs in `trim/`; at the repository root, the `soleil/`
+directory is in the way.
+
+The binary reads `config.toml` from `soleil/`, where it was compiled. Trimmed
+binaries do not log, so it prints nothing while it serves. The executable is
+about 21 MB, and the bundle, with the Julia runtime libraries, about 63 MB.
+Once its signing key is stored, it is ready in under a tenth of a second, and
+its first request is as fast as the next.
+
+Ctrl-C does not stop it cleanly yet. JuliaC leaves Julia's Ctrl-C listener out
+of trimmed binaries, so SIGINT takes the runtime's fatal-signal path, and on
+Julia 1.14.0-alpha2 that path's crash report segfaults; SIGTERM can do the
+same. The process still exits, and its state is safe: the file store replaces
+each file atomically, and JetStream redelivers any event that was not
+acknowledged.
+
+[`docker_server_demo.sh`](../docker_server_demo.sh) builds the Linux binary in
+Docker and ships it in a from-scratch image that holds only the executable, its
+bundled Julia runtime, and the system libraries they load: about 120 MB, or
+50 MB compressed, where the `julia:1.13` image that checkpoint 5 starts from is
+about 1.3 GB. It runs the image in
+the background with NATS JetStream on a private network, with `PROFILE=docker`
+reading [`config-docker.toml`](config-docker.toml), and Enter stops it:
+
+```sh
+./docker_server_demo.sh
+```
+
+With the container running, run the client from a second terminal:
+
+```sh
+julia +1.14.0-alpha2 --project=soleil soleil/client_demo.jl
+```
+
+The first `simulate` request is as fast as the second: there is no compiler in
+the image, and nothing left to compile.
 
 ## Tests
 
 From the repository root:
 
 ```sh
-julia --project=soleil -e 'using Pkg; Pkg.test(["Solar", "Soleil"])'
+julia +1.14.0-alpha2 --project=soleil -e 'using Pkg; Pkg.test(["Solar", "Soleil"])'
 ```

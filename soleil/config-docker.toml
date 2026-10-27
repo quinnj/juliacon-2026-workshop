@@ -1,0 +1,8 @@
+# The docker_server_demo.sh profile. Its webhook secret exists only in the
+# demo's throwaway containers.
+[events]
+enabled = true
+webhook_secret = "soleil-demo-weather-secret"
+
+[events.nats]
+url = "nats://nats:4222"

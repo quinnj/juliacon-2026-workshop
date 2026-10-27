@@ -2,10 +2,8 @@
 # a profile's config file overrides it.
 port = 9001
 
-# Where Soleil keeps its state: memory, file, redis, sqlite, or postgres.
-# Relative paths are relative to this directory.
+# The directory for Soleil's JSON state files, relative to this one.
 [state]
-backend = "file"
 path = "state"
 
 # Weather events need a NATS server, so they are off unless enabled. Set

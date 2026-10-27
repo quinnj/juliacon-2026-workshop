@@ -53,7 +53,8 @@ end
 # Like client_demo.jl: generate a client from the running service. This runs
 # before the tests, so they can call the module the include defines. Port 0
 # picks a free port.
-configs = Dict{String,Any}("port" => 0, "state" => Dict{String,Any}("backend" => "memory"))
+directory = mktempdir()
+configs = Dict{String,Any}("port" => 0, "state" => Dict{String,Any}("path" => directory))
 empty!(Servo.CONFIG)
 server = Soleil.run!(; host="127.0.0.1", configs, accesslog=false, log=false)
 base = "http://127.0.0.1:$(Servo.port(server))"
@@ -192,66 +193,13 @@ end
         @test Servo.authenticatebearer(validator, token, nothing) === nothing
     end
 
-    @testset "state backends" begin
-        @test_throws ArgumentError configured_backend(Dict{String,Any}("backend" => "floppy"))
-
-        @testset "file" begin
-            mktempdir() do directory
-                backend = test_persistence(Dict{String,Any}("backend" => "file", "path" => directory))
-                stored_keys = collect(keys(backend))
-                @test "soleil/meta/jwt-private-key" in stored_keys
-                @test any(startswith("oauth/access/"), stored_keys)
-                @test !any(contains("persistent@example.com"), stored_keys)
-            end
-        end
-
-        @testset "sqlite" begin
-            mktempdir() do directory
-                path = joinpath(directory, "state.sqlite")
-                test_persistence(Dict{String,Any}("backend" => "sqlite", "sqlite" => Dict{String,Any}("path" => path)))
-            end
-        end
-
-        @testset "redis" begin
-            if !docker_available()
-                @test_skip "Docker is not available"
-            else
-                Harbor.with_container(
-                    "redis";
-                    tag="7",
-                    ports=Dict(6379 => 0),
-                    wait_strategy=(pattern="Ready to accept connections",),
-                    wait_timeout=120.0,
-                ) do container
-                    redis = Dict{String,Any}("port" => Harbor.host_port(container, 6379))
-                    test_persistence(Dict{String,Any}("backend" => "redis", "redis" => redis))
-                end
-            end
-        end
-
-        @testset "postgres" begin
-            if !docker_available()
-                @test_skip "Docker is not available"
-            else
-                Harbor.with_container(
-                    "postgres";
-                    tag="16",
-                    ports=Dict(5432 => 0),
-                    environment=Dict("POSTGRES_PASSWORD" => "postgres", "POSTGRES_DB" => "soleil"),
-                    wait_strategy=(pattern=r"database system is ready to accept connections",),
-                    wait_timeout=120.0,
-                ) do container
-                    postgres = Dict{String,Any}(
-                        "port" => Harbor.host_port(container, 5432),
-                        "password" => "postgres",
-                        "database" => "soleil",
-                    )
-                    settings = Dict{String,Any}("backend" => "postgres", "postgres" => postgres)
-                    # Postgres restarts once after initializing, so wait for a real connection.
-                    retry(() -> configured_backend(settings); delays=fill(0.5, 60))()
-                    test_persistence(settings)
-                end
-            end
+    @testset "file state" begin
+        mktempdir() do directory
+            backend = test_persistence(Dict{String,Any}("path" => directory))
+            stored_keys = collect(keys(backend))
+            @test "soleil/meta/jwt-private-key" in stored_keys
+            @test any(startswith("oauth/access/"), stored_keys)
+            @test !any(contains("persistent@example.com"), stored_keys)
         end
     end
 
@@ -310,7 +258,7 @@ end
                     )
                     configs = Dict{String,Any}(
                         "port" => 0,
-                        "state" => Dict{String,Any}("backend" => "file", "path" => directory),
+                        "state" => Dict{String,Any}("path" => directory),
                         "events" => events,
                     )
                     empty!(Servo.CONFIG)
