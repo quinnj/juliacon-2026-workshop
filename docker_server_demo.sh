@@ -12,7 +12,7 @@ case "$backend" in
     *) echo "usage: $0 [memory|file|redis|sqlite|postgres]" >&2; exit 1 ;;
 esac
 
-image=soleil:jit
+image=soleil:precompiled
 network=soleil-demo-$$
 containers=
 

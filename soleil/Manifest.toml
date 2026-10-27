@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "19f1453a8ee48029de61f3c6426f3dcb26897723"
+project_hash = "d7ade07f6146117c7f3049f26bf8ba1aeed97ca0"
 
 [[deps.AbstractStores]]
 deps = ["Base64", "Dates", "Serialization"]
@@ -446,7 +446,7 @@ uuid = "2ae91c1a-bb75-4278-95c9-cd8aec436ad6"
 version = "0.1.0"
 
 [[deps.Soleil]]
-deps = ["AbstractStores", "DBInterface", "Dates", "Encid", "JSON", "JWTs", "NATS", "OAuth", "OpenAPI", "Postgres", "Random", "Redis", "SHA", "SQLite", "Servo", "Solar", "Tempus"]
+deps = ["AbstractStores", "DBInterface", "Dates", "Encid", "JSON", "JWTs", "Logging", "NATS", "OAuth", "OpenAPI", "Postgres", "PrecompileTools", "Random", "Redis", "SHA", "SQLite", "Servo", "Solar", "Tempus"]
 path = "Soleil"
 uuid = "787307b9-c09c-4ced-bd39-b3ea68e2cacb"
 version = "0.1.0"

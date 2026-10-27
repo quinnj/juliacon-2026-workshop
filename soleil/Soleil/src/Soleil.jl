@@ -19,10 +19,12 @@ using DBInterface
 using Encid
 using JSON # loads Servo's JSON response format and AbstractStores' JSON codec
 using JWTs
+using Logging
 using NATS
 using OAuth
 using OpenAPI
 using Postgres
+using PrecompileTools: @compile_workload, @setup_workload
 using Random
 using Redis
 using SHA
@@ -148,10 +150,16 @@ function _register_endpoints!(
         return _publish_weather_advisory!(events, advisory)
     end
 
-    # Describe the registered endpoints as OpenAPI 3.2 at /openapi.json.
-    OpenAPI.register!(router; title="Soleil API", version=string(pkgversion(Soleil)))
     return router
 end
+
+# The OpenAPI 3.2 description of these endpoints and Servo's builtins. It is
+# built once, while Soleil precompiles, and served at /openapi.json as a string.
+const OPENAPI_JSON = JSON.json(OpenAPI.document(
+    Servo.registerbuiltins!(_register_endpoints!(Servo.Router(), _new_application_state()));
+    title="Soleil API",
+    version=string(pkgversion(@__MODULE__)),
+))
 
 # A relative path in the configuration is relative to the configuration directory.
 function _config_path(configdir, key::String, default::String)
@@ -222,6 +230,7 @@ function run!(profile::AbstractString=""; configdir=DEFAULT_CONFIG_DIR, kw...)
         state = _new_application_state(_configured_state_backend(configdir))
         events[] = _configured_event_runtime(state)
         _register_endpoints!(router, state, events[])
+        OpenAPI.register!(router, OPENAPI_JSON)
         return nothing
     end
     http = try
@@ -250,5 +259,7 @@ function run(args...; kw...)
     end
     return nothing
 end
+
+include("precompile.jl")
 
 end # module

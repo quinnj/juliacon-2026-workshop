@@ -175,7 +175,7 @@ tags only the summaries that exist when it is processed. Set a real
 ## Container image
 
 [`docker_server_demo.sh`](../docker_server_demo.sh) builds the repository's
-[`Dockerfile`](../Dockerfile) as `soleil:jit` and runs it with NATS JetStream
+[`Dockerfile`](../Dockerfile) as `soleil:precompiled` and runs it with NATS JetStream
 on a private Docker network. It takes the state backend as its argument and
 uses memory by default; `redis` and `postgres` also start a database container:
 
@@ -194,9 +194,23 @@ With the container running, run the client from a second terminal:
 julia --project=soleil soleil/client_demo.jl
 ```
 
-The client first times two identical `simulate` requests. The image is plain
-Julia, so the first request also compiles the code it runs, and takes much
-longer than the second.
+The client first times two identical `simulate` requests.
+
+## Precompilation
+
+[`precompile.jl`](Soleil/src/precompile.jl) is a
+[PrecompileTools](https://github.com/JuliaLang/PrecompileTools.jl) workload:
+while Soleil precompiles, it starts a server and sends one request to every
+endpoint, so the compiled code is saved in Soleil's package image. The image
+build does that work once and takes longer; in exchange, the container's first
+request no longer waits for the compiler. Compare the client's two `simulate`
+timings with the previous checkpoint's. Events do not run during
+precompilation, so the workload's advisory gets the 503 response and the build
+needs no NATS server.
+
+Soleil's OpenAPI document is built while it precompiles, too:
+`/openapi.json` serves a constant string instead of describing the routes
+again on every request.
 
 ## Tests
 
